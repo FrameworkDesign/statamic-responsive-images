@@ -185,6 +185,7 @@ class Responsive
     private function parametersByBreakpoint(): Collection
     {
         $breakpoints = collect(config('statamic.responsive-images.breakpoints'));
+        $fallbackToDefault = config('statamic.responsive-images.fallback_to_default', false);
 
         return collect($this->parameters)
             ->map(function ($value, $key) use ($breakpoints) {
@@ -200,6 +201,17 @@ class Responsive
                     'value' => $value,
                     'breakpoint' => $breakpoints->get($prefix) ?? 0,
                 ];
+            })
+            ->when($fallbackToDefault, function ($collection) use ($breakpoints) {
+                return $breakpoints
+                    ->reject(fn($width, $breakpoint) => $collection->where('prefix', $breakpoint)->isNotEmpty())
+                    ->map(fn($width, $breakpoint) => [
+                        'prefix' => $breakpoint,
+                        'key' => 'src',
+                        'value' => $this->asset,
+                        'breakpoint' => $width,
+                    ])
+                    ->merge($collection);
             })
             ->values()
             ->sortBy('breakpoint')

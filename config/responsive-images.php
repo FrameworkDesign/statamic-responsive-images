@@ -155,4 +155,17 @@ return [
 
     'excluded_containers' => [],
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fallback To Default
+    |--------------------------------------------------------------------------
+    |
+    | When a breakpoint is missing, use the default media instead of
+    | falling back to the previous breakpoint's media.
+    |
+    */
+
+    'fallback_to_default' => true,
+
 ];
