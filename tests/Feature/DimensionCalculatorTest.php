@@ -1,13 +1,11 @@
 <?php
 
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Spatie\ResponsiveImages\Breakpoint;
 use Spatie\ResponsiveImages\Dimensions;
 use Spatie\ResponsiveImages\DimensionCalculator;
 use Spatie\ResponsiveImages\Responsive;
 use Spatie\ResponsiveImages\Source;
-use Spatie\ResponsiveImages\Tags\ResponsiveTag;
 use Statamic\Assets\Asset;
 use Statamic\Tags\Parameters;
 
@@ -20,7 +18,7 @@ function stubAsset(int $width, int $height, int $fileSize)
     return $stubbedAsset;
 }
 
-function getWidths(Asset $asset, Breakpoint $breakpoint): array
+function getWidths(Breakpoint $breakpoint): array
 {
     $source = new Source($breakpoint);
 
@@ -39,7 +37,7 @@ it('can calculate the optimized widths from an asset', function () {
 
     $breakpoint = new Breakpoint($asset, 'default', 0, []);
 
-    $widths = getWidths($asset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toEqual([
         0 => 340,
@@ -51,7 +49,7 @@ it('can calculate the optimized widths from an asset', function () {
 
     $breakpoint = new Breakpoint($smallAsset, 'default', 0, []);
 
-    $widths = getWidths($smallAsset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toEqual([
         0 => 150,
@@ -62,7 +60,7 @@ it('can calculate the optimized widths for different dimensions', function () {
     $stubbedAsset = stubAsset(300, 200, 300 * 1024);
     $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, []);
 
-    $widths = getWidths($stubbedAsset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toEqual([
         0 => 300,
@@ -80,7 +78,7 @@ it('can calculate the optimized widths for different dimensions', function () {
     $stubbedAsset = stubAsset(2400, 1800, 3000 * 1024);
     $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, []);
 
-    $widths = getWidths($stubbedAsset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toEqual([
         0 => 2400,
@@ -104,7 +102,7 @@ it('can calculate the optimized widths for different dimensions', function () {
     $stubbedAsset = stubAsset(8200, 5500, 12000 * 1024);
     $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, []);
 
-    $widths = getWidths($stubbedAsset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toEqual([
         0 => 8200,
@@ -136,7 +134,7 @@ it('can calculate the optimized widths for different dimensions with a custom th
     $stubbedAsset = stubAsset(2400, 1800, 3000 * 1024);
     $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, []);
 
-    $widths = getWidths($stubbedAsset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toEqual([
         0 => 2400,
@@ -154,7 +152,7 @@ it('filters out widths to be less than max width specified in config', function(
 
     $breakpoint = new Breakpoint($asset, 'default', 0, []);
 
-    expect(getWidths($asset, $breakpoint))->toEqualCanonicalizing([237, 284]);
+    expect(getWidths($breakpoint))->toEqualCanonicalizing([237, 284]);
 });
 
 it('filters out widths to be less than max width specified in glide width param', function() {
@@ -162,7 +160,7 @@ it('filters out widths to be less than max width specified in glide width param'
 
     $breakpoint = new Breakpoint($asset, 'default', 0, ['glide:width' => 300]);
 
-    expect(getWidths($asset, $breakpoint))->toEqualCanonicalizing([237, 284]);
+    expect(getWidths($breakpoint))->toEqualCanonicalizing([237, 284]);
 });
 
 test('max width from glide width param takes precedence over config when filtering widths', function() {
@@ -172,7 +170,7 @@ test('max width from glide width param takes precedence over config when filteri
 
     $breakpoint = new Breakpoint($asset, 'default', 0, ['glide:width' => 300]);
 
-    expect(getWidths($asset, $breakpoint))->toEqualCanonicalizing([237, 284]);
+    expect(getWidths($breakpoint))->toEqualCanonicalizing([237, 284]);
 });
 
 it('returns one dimension with equal width of max width when all dimensions have been filtered out', function () {
@@ -182,7 +180,7 @@ it('returns one dimension with equal width of max width when all dimensions have
 
     $breakpoint = new Breakpoint($asset, 'default', 0, []);
 
-    $widths = getWidths($asset, $breakpoint);
+    $widths = getWidths($breakpoint);
 
     expect($widths)->toHaveCount(1);
     expect($widths[0])->toBe(25);
@@ -222,4 +220,61 @@ test('ResponsiveDimensionCalculator returns correct height for img tag when spec
     $calculatedDimensions = app(DimensionCalculator::class)->calculateForImgTag($breakpoint);
 
     expect($calculatedDimensions->getHeight())->toEqual(170);
+});
+
+test('ResponsiveDimensionCalculator does not exceed original image dimensions when switching aspect ratios', function () {
+    // Test case from GitHub issue #257
+    // Original image: 3000x1688px (landscape, ratio ≈ 1.78)
+    // Custom ratio: 9/16 = 0.5625 (portrait)
+    $stubbedAsset = stubAsset(3000, 1688, 5000 * 1024);
+    
+    $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, ['ratio' => 9 / 16]);
+    
+    $calculatedDimensions = app(DimensionCalculator::class)->calculateForImgTag($breakpoint);
+    
+    // Dimensions should not exceed original image dimensions
+    expect($calculatedDimensions->getWidth())->toBeLessThanOrEqual(3000);
+    expect($calculatedDimensions->getHeight())->toBeLessThanOrEqual(1688);
+    
+    // With ratio 9/16, height should be constrained to 1688, width should be 1688 * (9/16) ≈ 950
+    expect($calculatedDimensions->getHeight())->toBe(1688);
+    expect($calculatedDimensions->getWidth())->toBe(950);
+});
+
+test('ResponsiveDimensionCalculator constrains dimensions correctly when switching from portrait to landscape', function () {
+    // Original image: 1688x3000px (portrait)
+    // Custom ratio: 16/9 = 1.78 (landscape)
+    $stubbedAsset = stubAsset(1688, 3000, 5000 * 1024);
+    
+    $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, ['ratio' => 16 / 9]);
+    
+    $calculatedDimensions = app(DimensionCalculator::class)->calculateForImgTag($breakpoint);
+    
+    // Dimensions should not exceed original image dimensions
+    expect($calculatedDimensions->getWidth())->toBeLessThanOrEqual(1688);
+    expect($calculatedDimensions->getHeight())->toBeLessThanOrEqual(3000);
+    
+    // With ratio 16/9, width should be constrained to 1688, height should be 1688 / (16/9) ≈ 950
+    expect($calculatedDimensions->getWidth())->toBe(1688);
+    expect($calculatedDimensions->getHeight())->toBe(950);
+});
+
+test('ResponsiveDimensionCalculator calculateDimensions does not exceed original image dimensions', function () {
+    // Test the calculateDimensions method (used for breakpoints)
+    $stubbedAsset = stubAsset(3000, 1688, 5000 * 1024);
+    $breakpoint = new Breakpoint($stubbedAsset, 'default', 0, ['ratio' => 9 / 16]);
+    $source = new Source($breakpoint);
+    
+    $dimensions = app(DimensionCalculator::class)->calculateForBreakpoint($source);
+    
+    // The first (largest) dimension should not exceed original image dimensions
+    $firstDimension = $dimensions->first();
+    expect($firstDimension->getWidth())->toBeLessThanOrEqual(3000);
+    expect($firstDimension->getHeight())->toBeLessThanOrEqual(1688);
+    
+    // All dimensions should respect the constraint
+    $dimensions->each(function ($dimension) {
+        expect($dimension->getWidth())->toBeLessThanOrEqual(3000);
+        expect($dimension->getHeight())->toBeLessThanOrEqual(1688);
+    });
 });

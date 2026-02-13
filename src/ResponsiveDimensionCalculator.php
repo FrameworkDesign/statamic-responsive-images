@@ -5,9 +5,6 @@ namespace Spatie\ResponsiveImages;
 use Illuminate\Support\Collection;
 use Statamic\Contracts\Assets\Asset;
 
-/**
- * The original, file-size, aspect-ratio based dimension calculator.
- */
 class ResponsiveDimensionCalculator implements DimensionCalculator
 {
     public function calculateForBreakpoint(Source $source): Collection
@@ -23,18 +20,14 @@ class ResponsiveDimensionCalculator implements DimensionCalculator
         return $this
             ->calculateDimensions($fileSize, $width, $height, $ratio)
             ->sort()
-            // Filter out widths by max width
-            ->when((isset($glideParams['width']) || config('statamic.responsive-images.max_width') !== null), function ($dimensions) use ($glideParams, $ratio) {
+            ->when(isset($glideParams['width']) || config('statamic.responsive-images.max_width') !== null, function ($dimensions) use ($glideParams, $ratio) {
                 $maxWidth = $glideParams['width'] ?? config('statamic.responsive-images.max_width');
 
-                $filtered = $dimensions->filter(function (Dimensions $dimensions) use ($maxWidth) {
-                    return $dimensions->getWidth() <= $maxWidth;
-                });
+                $filtered = $dimensions->filter(fn (Dimensions $dimensions) => $dimensions->width <= $maxWidth);
 
-                // We want at least one width to be returned
-                if (! $filtered->count()) {
+                if ($filtered->isEmpty()) {
                     $filtered = collect([
-                        new Dimensions($maxWidth, round($maxWidth / $ratio)),
+                        new Dimensions($maxWidth, (int) round($maxWidth / $ratio)),
                     ]);
                 }
 
@@ -47,15 +40,18 @@ class ResponsiveDimensionCalculator implements DimensionCalculator
         $maxWidth = ($breakpoint->parameters['glide:width'] ?? config('statamic.responsive-images.max_width') ?? null);
 
         $ratio = $this->breakpointRatio($breakpoint->asset, $breakpoint);
+        $originalWidth = $breakpoint->asset->width();
+        $originalHeight = $breakpoint->asset->height();
 
-        $width = $maxWidth ?? $breakpoint->asset->width();
+        $width = $maxWidth ?? $originalWidth;
+        $height = (int) round($width / $ratio);
 
-        return new Dimensions($width, round($width / $ratio));
+        return $this->constrainToOriginal($width, $height, $originalWidth, $originalHeight, $ratio);
     }
 
     public function calculateForPlaceholder(Breakpoint $breakpoint): Dimensions
     {
-        return new Dimensions(32, 32 / $this->breakpointRatio($breakpoint->asset, $breakpoint));
+        return new Dimensions(32, (int) round(32 / $this->breakpointRatio($breakpoint->asset, $breakpoint)));
     }
 
     public function breakpointRatio(Asset $asset, Breakpoint $breakpoint): float
@@ -63,13 +59,14 @@ class ResponsiveDimensionCalculator implements DimensionCalculator
         return $breakpoint->parameters['ratio'] ?? ($asset->width() / $asset->height());
     }
 
-    protected function calculateDimensions(int $assetFilesize, int $assetWidth, int $assetHeight, $ratio): Collection
+    protected function calculateDimensions(int $assetFilesize, int $assetWidth, int $assetHeight, float $ratio): Collection
     {
         $dimensions = collect();
 
-        $dimensions->push(new Dimensions($assetWidth, round($assetWidth / $ratio)));
+        $initialHeight = (int) round($assetWidth / $ratio);
 
-        // For filesize calculations
+        $dimensions->push($this->constrainToOriginal($assetWidth, $initialHeight, $assetWidth, $assetHeight, $ratio));
+
         $ratioForFilesize = $assetHeight / $assetWidth;
         $area = $assetHeight * $assetWidth;
 
@@ -85,20 +82,29 @@ class ResponsiveDimensionCalculator implements DimensionCalculator
                 return $dimensions;
             }
 
-            $dimensions->push(new Dimensions($newWidth, round($newWidth / $ratio)));
+            $newHeight = (int) round($newWidth / $ratio);
+
+            $dimensions->push($this->constrainToOriginal($newWidth, $newHeight, $assetWidth, $assetHeight, $ratio));
         }
+    }
+
+    protected function constrainToOriginal(int $width, int $height, int $maxWidth, int $maxHeight, float $ratio): Dimensions
+    {
+        if ($height > $maxHeight) {
+            $height = $maxHeight;
+            $width = (int) round($height * $ratio);
+        }
+
+        if ($width > $maxWidth) {
+            $width = $maxWidth;
+            $height = (int) round($width / $ratio);
+        }
+
+        return new Dimensions($width, $height);
     }
 
     protected function finishedCalculating(float $predictedFileSize, int $newWidth): bool
     {
-        if ($newWidth < 20) {
-            return true;
-        }
-
-        if ($predictedFileSize < (1024 * 10)) {
-            return true;
-        }
-
-        return false;
+        return $newWidth < 20 || $predictedFileSize < (1024 * 10);
     }
 }
